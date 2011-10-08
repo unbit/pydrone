@@ -37,6 +37,10 @@
 #include <Python.h>
 #include <jsapi.h>
 
+#if PY_MAJOR_VERSION > 2
+#define PYTHREE
+#endif
+
 
 // define the global class
 static JSClass global_class = {  
@@ -73,7 +77,7 @@ static PyObject *js_to_py(JSContext *context, jsval rval) {
 		return PyUnicode_FromString(str);
 	}
 	else if (JSVAL_IS_INT(rval)) {
-		return PyInt_FromLong(JSVAL_TO_INT(rval));
+		return PyLong_FromLong(JSVAL_TO_INT(rval));
 	}
 	else if (JSVAL_IS_DOUBLE(rval)) {
 		return PyFloat_FromDouble(JSVAL_TO_DOUBLE(rval));
@@ -127,6 +131,8 @@ static PyObject *js_to_py(JSContext *context, jsval rval) {
 
 static jsval py_to_js(JSContext *context, PyObject *data) {
 
+
+#ifndef PYTHREE
 	if (PyString_Check(data)) {
 		JSString *js_string = JS_NewStringCopyN(context, PyString_AsString(data), PyString_Size(data));
 		return STRING_TO_JSVAL(js_string);
@@ -137,12 +143,26 @@ static jsval py_to_js(JSContext *context, PyObject *data) {
 		Py_DECREF(py_str);
 		return STRING_TO_JSVAL(js_string);
 	}
+#else
+	if (PyBytes_Check(data)) {
+                JSString *js_string = JS_NewStringCopyN(context, PyBytes_AsString(data), PyBytes_Size(data));
+                return STRING_TO_JSVAL(js_string);
+        }
+	else if (PyUnicode_Check(data)) {
+		PyObject *py_str = PyUnicode_AsUTF8String(data);
+		JSString *js_string = JS_NewStringCopyN(context, PyBytes_AsString(py_str), PyBytes_Size(py_str));
+		Py_DECREF(py_str);
+		return STRING_TO_JSVAL(js_string);
+	}
+#endif
 	else if (PyFloat_Check(data)) {
 		return DOUBLE_TO_JSVAL( PyFloat_AsDouble(data) );
 	}
+#ifndef PYTHREE
 	else if (PyInt_Check(data)) {
 		return INT_TO_JSVAL( PyInt_AsLong(data) );
 	}
+#endif
 	else if (PyLong_Check(data)) {
 		return INT_TO_JSVAL( PyLong_AsLong(data) );
 	}
@@ -165,23 +185,36 @@ static jsval py_to_js(JSContext *context, PyObject *data) {
 		return OBJECT_TO_JSVAL(js_array);
 	}
 	else if (PyDict_Check(data)) {
+		char *prop_name;
 		PyObject *key, *value;
-		char *prop_name = NULL;
 		Py_ssize_t pos = 0;
 		JSObject *js_dict = JS_NewObject(context, NULL, NULL, NULL);
 		while (PyDict_Next(data, &pos, &key, &value)) {
+			PyObject *py_str = NULL;
+			prop_name = NULL;
+#ifndef PYTHREE
 			if (PyString_Check(key)) {
 				prop_name = PyString_AsString(key);
 			}	
+#else
+			if (PyBytes_Check(key)) {
+				prop_name = PyBytes_AsString(key);
+			}	
+#endif
 			else if (PyUnicode_Check(key)) {
-				PyObject *py_str = PyUnicode_AsUTF8String(data);
+				PyObject *py_str = PyUnicode_AsUTF8String(key);
+#ifndef PYTHREE
 				prop_name = PyString_AsString(py_str);
-				Py_DECREF(py_str);
+#else
+				prop_name = PyBytes_AsString(py_str);
+#endif
 			}
 
-			if (prop_name) {
+			if (prop_name != NULL) {
 				jsval js_dict_item = py_to_js(context, value);
 				JS_SetProperty(context, js_dict, prop_name, &js_dict_item);
+
+				if (py_str) Py_DECREF(py_str);
 			}
 		}
 		return OBJECT_TO_JSVAL(js_dict);	
@@ -208,11 +241,19 @@ static PyObject *pydrone_js(PyObject *self, PyObject *args) {
 
 	int error = 0;
 
+
 	if (!PyArg_ParseTuple(args, "s#O:js", &script, &script_len, &py_data))
 		return NULL;
+
   
 	runtime = JS_NewRuntime (1024L*1024L);
+	if (!runtime)
+		return PyErr_Format(PyExc_SystemError, "unable to initialize JS runtime\n");
 	context = JS_NewContext (runtime, 8192);
+	if (!context) {
+		JS_DestroyRuntime(runtime);
+		return PyErr_Format(PyExc_SystemError, "unable to initialize JS context\n");
+	}
 
 
 	// add error as private data in the context
@@ -232,6 +273,7 @@ static PyObject *pydrone_js(PyObject *self, PyObject *args) {
 	JS_InitStandardClasses(context, global);
 
 	// convert the python data to js and map it as "var data"
+
 	jsval js_data = py_to_js(context, py_data);
 	JS_SetProperty(context, global, "data", &js_data);
 
@@ -263,7 +305,26 @@ static PyMethodDef pydrone_methods[] = {
 };
 
 // init
-PyMODINIT_FUNC
-initpydrone(void) {
+#ifndef PYTHREE
+PyMODINIT_FUNC initpydrone(void) {
 	(void) Py_InitModule("pydrone", pydrone_methods);
+#else
+
+static struct PyModuleDef moduledef = {
+        PyModuleDef_HEAD_INIT,
+        "pydrone",
+        "the pydrone module",
+        -1,
+        pydrone_methods,
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+};
+
+
+PyMODINIT_FUNC PyInit_pydrone(void) {
+
+	return PyModule_Create(&moduledef);
+#endif
 }
