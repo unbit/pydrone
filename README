@@ -1,5 +1,7 @@
-pydrone allows you to pass a basic python object (list, tuple, string, unicode, int, log, float and dictionary) to a sandboxed javascript
-environment that will evaluate your defined code and returns a value. This value is re-converted to a python object.
+pydrone allows you to pass a basic python object (list, tuple, string, unicode, int, log, float and dictionary) to a sandboxed
+javascript environment that will evaluate your defined code and returns a value. This value is re-converted to a python object.
+
+Your js code can access the passed python object as the global variable 'data'
 
 Yes yes, the introduction looks like a nonsense. Code is better than words...
 
