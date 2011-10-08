@@ -26,4 +26,6 @@ On debian-based distros you can do
 
 sudo apt-get install libmojs-dev
 
+COMPATIBILITY
 
+You need python >=2.5 (yes 3.x is supported). Currently only tested on Linux
