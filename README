@@ -3,6 +3,7 @@ environment that will evaluate your defined code and returns a value. This value
 
 Yes yes, the introduction looks like a nonsense. Code is better than words...
 
+#####################################
 
 import pydrone
 
@@ -15,5 +16,14 @@ my_number = 30
 
 print pydrone.js(code, my_number)
 
+#####################################
+
+INSTALL
+
+you need spidermonkey (mozilla javascript engine) and its header files
+
+On debian-based distros you can do
+
+sudo apt-get install libmojs-dev
 
 
