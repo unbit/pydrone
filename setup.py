@@ -7,6 +7,6 @@ module = Extension('pydrone',
 
 setup (name = 'pydrone',
        author = 'Unbit',
-       version = '0.1',
+       version = '0.2',
        description = 'pydrone',
        ext_modules = [module])

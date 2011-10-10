@@ -60,8 +60,14 @@ static JSClass global_class = {
 // map js exception to python's one
 void js_raise_exc(JSContext *context, const char *message, JSErrorReport *report) { 
 
-	PyErr_Format(PyExc_ValueError, "%s:%u:%s", report->filename,
-		(unsigned int) report->lineno, message);  
+	if (!report->filename) {
+		PyErr_Format(PyExc_ValueError, "%s", message);
+	}
+	else {
+
+		PyErr_Format(PyExc_ValueError, "%s:%u:%s", report->filename,
+			(unsigned int) report->lineno, message);  
+	}
 
 	int *error = JS_GetContextPrivate(context); 
 
@@ -278,15 +284,16 @@ static PyObject *pydrone_js(PyObject *self, PyObject *args) {
 	JS_SetProperty(context, global, "data", &js_data);
 
 	// evaluate the script
-	JS_EvaluateScript(context, global, script, script_len, "pydrone", 1, &rval);
+	JSBool jret = JS_EvaluateScript(context, global, script, script_len, "pydrone", 1, &rval);
 
-	// check for exception
-	if (error == 1) {
+	// check for exceptions
+	if (jret == JS_FALSE || error == 1) {
 		JS_DestroyContext(context);
 		JS_DestroyRuntime(runtime);
 		JS_ShutDown();
 		return NULL;	
 	}
+
   
 
 	PyObject *ret = js_to_py(context, rval);
