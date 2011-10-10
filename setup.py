@@ -1,7 +1,7 @@
 from distutils.core import setup, Extension
 
 module = Extension('pydrone',
-                    libraries = ['mozjs'],
+                    libraries = ['mozjs','pthread'],
                     include_dirs = ['/usr/local/include/mozjs', '/usr/include/mozjs'],
                     sources = ['pydrone.c'])
 

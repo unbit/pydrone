@@ -36,6 +36,8 @@
 
 #include <Python.h>
 #include <jsapi.h>
+#include <sys/poll.h>
+#include <pthread.h>
 
 #if PY_MAJOR_VERSION > 2
 #define PYTHREE
@@ -229,6 +231,72 @@ static jsval py_to_js(JSContext *context, PyObject *data) {
 	return JSVAL_NULL;
 }
 
+struct drone_watchdog {
+	pthread_t tid;
+	JSContext *context;
+	int timeout;
+	int pipe[2];
+};
+
+
+JSBool js_destroy(JSContext *context) {
+	JS_SetPendingException(context, STRING_TO_JSVAL(JS_NewStringCopyZ(context, "drone timeout")));
+	return JS_FALSE;
+}
+
+void *js_watchdog(void *ptr) {
+	
+	struct drone_watchdog *dw = (struct drone_watchdog *) ptr;
+	struct pollfd dwpoll;
+
+	dwpoll.fd = dw->pipe[1];
+	dwpoll.events = POLLIN;
+
+	int ret = poll(&dwpoll, 1, dw->timeout*1000);
+	if (ret <= 0) {
+		JS_TriggerOperationCallback(dw->context);
+	}
+
+	return NULL;
+}
+
+struct drone_watchdog *run_drone_watchdog(JSContext *context, int timeout) {
+
+	struct drone_watchdog *dw;
+
+	dw = calloc(sizeof(struct drone_watchdog), 1);
+	if (!dw) return NULL;
+	
+	dw->context = context;
+	if (pipe(dw->pipe) < 0) {
+		free(dw);
+		return NULL;
+	}
+	
+	dw->timeout = timeout;
+
+	if (pthread_create(&dw->tid, NULL, js_watchdog, dw) != 0) {
+		close(dw->pipe[0]);
+		close(dw->pipe[1]);
+		free(dw);
+		return NULL;
+	}
+
+	return dw;
+	
+}
+
+void shutdown_drone_watchdog(struct drone_watchdog *dw) {
+	
+	// here we wakeup the thread
+	close(dw->pipe[0]);
+	close(dw->pipe[1]);
+
+	(void) pthread_join(dw->tid, NULL);
+
+	free(dw);
+}
+
 // the core of the module: create a js runtime/context run code and return a python object
 static PyObject *pydrone_js(PyObject *self, PyObject *args) {
 
@@ -241,14 +309,16 @@ static PyObject *pydrone_js(PyObject *self, PyObject *args) {
 	char *script;
 	Py_ssize_t script_len;
 	PyObject *py_data;
+	int timeout = 5;
 
 	// script evaluation return value
 	jsval rval;
 
 	int error = 0;
+	struct drone_watchdog *dw = NULL;
 
 
-	if (!PyArg_ParseTuple(args, "s#O:js", &script, &script_len, &py_data))
+	if (!PyArg_ParseTuple(args, "s#O|i:js", &script, &script_len, &py_data, &timeout))
 		return NULL;
 
   
@@ -271,6 +341,9 @@ static PyObject *pydrone_js(PyObject *self, PyObject *args) {
 	JS_SetVersion(context, JSVERSION_LATEST);
 	// map the exception handler
 	JS_SetErrorReporter(context, js_raise_exc);
+	// limit script execution
+	JS_SetOperationCallback(context, js_destroy);
+
 
 	// initialize the global object
 	global = JS_NewCompartmentAndGlobalObject(context, &global_class, NULL);
@@ -283,8 +356,20 @@ static PyObject *pydrone_js(PyObject *self, PyObject *args) {
 	jsval js_data = py_to_js(context, py_data);
 	JS_SetProperty(context, global, "data", &js_data);
 
+	// run the watchdog
+	if (timeout > 0) {
+		dw = run_drone_watchdog(context, timeout);
+		if (dw == NULL) {
+			JS_DestroyContext(context);
+			JS_DestroyRuntime(runtime);
+			JS_ShutDown();
+			return PyErr_Format(PyExc_SystemError, "unable to initialize JS watchdog\n");
+		}
+	}
 	// evaluate the script
 	JSBool jret = JS_EvaluateScript(context, global, script, script_len, "pydrone", 1, &rval);
+
+	if (dw) shutdown_drone_watchdog(dw);
 
 	// check for exceptions
 	if (jret == JS_FALSE || error == 1) {
