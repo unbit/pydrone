@@ -28,6 +28,22 @@ On debian-based distros you can do
 
 sudo apt-get install libmojs-dev
 
+then
+
+python setup.py install
+
+or
+
+pip install pydrone
+
 COMPATIBILITY
 
 You need python >=2.5 (yes 3.x is supported). Currently only tested on Linux
+
+SECURITY
+
+By default each script must end in 5 seconds, you can tune the timeout passing it (as seconds) as the third argument
+
+print pydrone.js(code, my_number, 17)
+
+will set the timeout to 17 seconds
